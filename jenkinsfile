@@ -1,0 +1,79 @@
+pipeline {
+    agent any
+    environment {
+        SONAR_HOME = tool "Sonar" // Ensure "Sonar" matches your SonarQube installation name
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = credentials('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY') // Replace with your credentials ID
+        CLERK_SECRET_KEY = credentials('CLERK_SECRET_KEY') // Replace with your credentials ID
+
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL = '/sign-in'
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL = '/sign-up'
+
+        DATABASE_URL = credentials(DATABASE_URL)
+
+        // UploadThing
+        UPLOADTHING_SECRET = credentials('UPLOADTHING_SECRET') // Replace with your credentials ID
+        UPLOADTHING_APP_ID = credentials('UPLOADTHING_APP_ID') // Replace with your credentials ID
+        UPLOADTHING_TOKEN = credentials('UPLOADTHING_TOKEN') // Replace with your credentials ID
+
+        NEXT_PUBLIC_SITE_URL = 'http://localhost:3000'
+
+        // Livekit.io
+        LIVEKIT_API_KEY = credentials('LIVEKIT_API_KEY') // Replace with your credentials ID
+        LIVEKIT_API_SECRET = credentials('LIVEKIT_API_SECRET') // Replace with your credentials ID
+        NEXT_PUBLIC_LIVEKIT_URL = credentials('NEXT_PUBLIC_LIVEKIT_URL')
+
+        // Redis connection string
+        REDIS_CONNECTION_STRING = credentials('REDIS_CONNECTION_STRING')
+
+        // PostgreSQL setup using Docker
+        POSTGRES_USER = credentials('POSTGRES_USER')
+        POSTGRES_PASSWORD = credentials('POSTGRES_PASSWORD')
+        POSTGRES_DB = credentials('POSTGRES_DB')
+    }
+
+    stages {
+        stage('Clone Code From Github') {
+            steps {
+                echo 'Fetching the Code'
+                git url: "https://github.com/CoderSwarup/discord-clone.git", branch: "main"
+            }
+        }
+
+        stage('Sonarqube Quality Analysis') {
+            steps {
+                withSonarQubeEnv("Sonar") {
+                    sh '$SONAR_HOME/bin/sonar-scanner -Dsonar.projectName=discordClone -Dsonar.projectKey=discord-clone'
+                }
+            }
+        }
+
+        stage("OWASP Dependency Check") {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'dependency Check' // Match installation name
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        stage("Sonar Quality Gate Scan") {
+            steps {
+                timeout(time: 2, unit: "MINUTES") {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+
+        stage('Trivy File System Scan') {
+            steps {
+                sh 'trivy fs --format table -o trivy-fs-report.html .' // Ensure trivy is accessible
+            }
+        }
+        
+        stage("Deploy using Docker Compose"){
+            steps {
+                echo "Starting Docker containers..."
+                sh 'docker-compose up -d'
+            }
+        }
+    }
+
+}
